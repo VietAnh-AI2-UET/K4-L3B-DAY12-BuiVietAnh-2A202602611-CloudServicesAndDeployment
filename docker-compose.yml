@@ -1,44 +1,76 @@
-# ═══════════════════════════════════════════════════════════════════
-# CP2 — Stack chạy ở máy bạn: agent + redis (+ nginx nếu làm phần cộng điểm)
-#
-# Service `redis` đã cho sẵn — chạy ngay từ Block 1 để có Redis mà code:
-#     docker compose up -d redis
-#
-# NHIỆM VỤ: bổ sung service `agent`. Yêu cầu:
-#   [ ] build từ Dockerfile trong thư mục hiện tại
-#   [ ] map cổng ra ngoài (8000:8000)
-#   [ ] KHÔNG viết secret thẳng vào file này — dùng nội suy biến môi trường
-#       `${AGENT_API_KEY}` (docker compose tự đọc từ file .env cùng thư mục)
-#   [ ] REDIS_URL trỏ tới `redis://redis:6379/0` — trong compose, tên service
-#       chính là hostname
-#   [ ] depends_on: redis
-#   [ ] healthcheck gọi /health
-#
-# MỞ RỘNG TÙY CHỌN: thêm service `nginx` làm load balancer
-# (không phải bonus chấm điểm riêng; nginx/nginx.conf đã có sẵn)
-#     docker compose up --scale agent=3
-#
-# Kiểm tra: pytest tests/test_cp2.py -v
-# ═══════════════════════════════════════════════════════════════════
-
+# Khai báo các chương trình (service) chạy cùng nhau bằng Docker Compose.
 services:
+  # Đặt tên service Redis là "redis"; agent dùng tên này để kết nối qua mạng Compose.
   redis:
+    # Dùng Redis 7 bản Alpine gọn nhẹ.
     image: redis:7-alpine
+    # Bật chế độ ghi dữ liệu xuống ổ đĩa để dữ liệu có thể được khôi phục.
     command: ["redis-server", "--appendonly", "yes"]
+    # Khai báo các cổng được đưa ra máy của bạn.
     ports:
+      # Cổng 6379 trên máy trỏ tới cổng 6379 của container Redis.
       - "6379:6379"
+    # Khai báo nơi lưu dữ liệu lâu dài cho Redis.
     volumes:
+      # Gắn volume redis-data vào thư mục /data trong container Redis.
       - redis-data:/data
+    # Kiểm tra Redis có phản hồi trước khi coi service là khỏe.
     healthcheck:
+      # Gửi lệnh PING bằng công cụ redis-cli; thành công nghĩa là Redis phản hồi.
       test: ["CMD", "redis-cli", "ping"]
+      # Kiểm tra lại sau mỗi 10 giây.
       interval: 10s
+      # Mỗi lần kiểm tra được chờ tối đa 3 giây.
       timeout: 3s
+      # Sau 5 lần kiểm tra thất bại liên tiếp, đánh dấu Redis không khỏe.
       retries: 5
 
-  # TODO (CP2): khai báo service `agent` ở đây
-  # agent:
-  #   build: .
-  #   ...
+  # Service chạy ứng dụng Python API.
+  agent:
+    # Chỉ dẫn Compose tự build image cho agent.
+    build:
+      # Dùng thư mục chứa file này làm nguồn dữ liệu cho quá trình build.
+      context: .
+      # Lấy hướng dẫn build từ Dockerfile trong thư mục đó.
+      dockerfile: Dockerfile
+    # Khai báo các cổng được đưa ra máy của bạn.
+    ports:
+      # Cổng 8000 trên máy trỏ tới cổng 8000 của container agent.
+      - "8000:8000"
+    # Truyền các biến môi trường vào container agent.
+    environment:
+      # Lấy khóa API từ môi trường hoặc file .env khi chạy Compose; không ghi khóa thật ở đây.
+      AGENT_API_KEY: ${AGENT_API_KEY}
+      # Kết nối tới service redis qua tên "redis", không dùng localhost của container agent.
+      REDIS_URL: redis://redis:6379/0
+    # Khai báo service phải sẵn sàng trước khi Compose khởi động agent.
+    depends_on:
+      # Agent cần service Redis.
+      redis:
+        # Chờ healthcheck của Redis báo khỏe rồi mới khởi động agent.
+        condition: service_healthy
+    # Kiểm tra định kỳ API của agent còn phản hồi hay không.
+    healthcheck:
+      # Lệnh kiểm tra được viết thành danh sách đối số.
+      test:
+        # CMD yêu cầu Docker chạy trực tiếp lệnh bên dưới.
+        - CMD
+        # Dùng Python có sẵn trong image agent.
+        - python
+        # -c cho Python thực thi đoạn mã ngắn ở đối số kế tiếp.
+        - -c
+        # Gọi /health trong chính container; lỗi kết nối hoặc HTTP sẽ làm kiểm tra thất bại.
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"
+      # Kiểm tra lại sau mỗi 30 giây.
+      interval: 30s
+      # Mỗi lần kiểm tra được chờ tối đa 5 giây.
+      timeout: 5s
+      # Cho ứng dụng 10 giây khởi động trước khi tính số lần lỗi.
+      start_period: 10s
+      # Sau 3 lần kiểm tra thất bại liên tiếp, đánh dấu agent không khỏe.
+      retries: 3
 
+# Khai báo các volume được dùng ở phần services.
 volumes:
+  # Tạo volume tên redis-data để dữ liệu Redis tồn tại sau khi container bị tạo lại.
   redis-data:

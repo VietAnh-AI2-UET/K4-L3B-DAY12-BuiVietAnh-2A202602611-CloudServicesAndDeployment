@@ -1,6 +1,29 @@
-# TODO (CP2): file này quyết định thứ KHÔNG được copy vào image.
-# Bỏ sót .env = leak secret vào image. Bỏ sót .git = image phình to.
-# Bổ sung đủ các mục còn thiếu — xem tests/test_cp2.py để biết yêu cầu.
+# Secrets and local environment files
+.env
+.env.*
+.venv
+venv
 
+# Version control and Python-generated files
 .git
 .gitignore
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# Files not used by the Dockerfile
+tests
+screenshots
+nginx
+*.md
+grade.py
+docker-compose.yml
+render.yaml
+railway.toml
+
+# Docker still needs this file and the Dockerfile to process the build.
+.dockerignore
